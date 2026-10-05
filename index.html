@@ -481,7 +481,7 @@ textarea.input{min-height:200px;resize:vertical;line-height:1.95}
    ===================================================================== */
 const CONFIG = {
   // آدرس Web App گوگل اپس اسکریپت. خالی = حالت پیش‌نمایش؛ چیزی ارسال نمی‌شود.
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyuvUbR_i6tWlylRiA3rYExEA3DbOjAuB7sOVrbTAB7NaBpf5q593ufzgTSO66xmeGROg/exec',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbw7bJZW7u0E3nHRImKoKIIl0kOJ7csGJd2NoDdlxdDCmdV6bf_Jd4MwEL9MqAqV2X0DsQ/exec',
   // در Apps Script، لینک PDF از CONFIG.TERMS_URL در Code.gs می‌آید
   TERMS_URL: (T => T.startsWith('<' + '?') ? 'terms.pdf' : T)('<?!= termsUrl ?>'),
   TERMS_VERSION: '1405-v1',
@@ -1086,7 +1086,7 @@ function updateCounter(){
   const n = wordCount(data.motivation), min = CONFIG.MIN_WORDS;
   const c = $('#c-motivation');
   c.classList.toggle('ok', n >= min);
-  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حداقل ${fa(min)} کلمه</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
+  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حدود دو جمله کافی است</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
 }
 
 function bindUpload(key){
@@ -1214,8 +1214,8 @@ function check(n){
   }
   if (n === 4) {
     const len = wordCount(data.motivation);
-    if (!len) errs.push(['motivation','در یکی دو جمله بنویسید با چه هدفی می‌آیید.']);
-    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حداقل ${fa(CONFIG.MIN_WORDS)} کلمه (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
+    if (!len) errs.push(['motivation','در دو جمله بنویسید با چه هدفی می‌آیید.']);
+    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حدود دو جمله کافی است (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
     need('hours','یکی از بازه‌ها را انتخاب کنید.');
     need('source','یکی از گزینه‌ها را انتخاب کنید.');
     if (data.source === 'سایر' && !data.sourceOther) errs.push(['sourceOther','بنویسید از چه طریقی آشنا شدید.']);
@@ -1303,30 +1303,38 @@ async function submit(){
       res = { ok:true, id: 'PF-' + String(Math.floor(1000 + Math.random()*9000)), groupLink: '' };
     } else {
       const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 90000);
-      const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
-      clearTimeout(tm);
-      const raw = await r.text();
-      try { res = JSON.parse(raw); }
-      catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
+      try {
+        const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
+        const raw = await r.text();
+        if (!r.ok) { const err = new Error('server-http'); err.code = 'HTTP-' + r.status; throw err; }
+        try { res = JSON.parse(raw); }
+        catch (_) { const err = new Error('bad-response'); err.code = 'BAD-RESPONSE'; throw err; }
+      } finally {
+        clearTimeout(tm);
+      }
     }
     sending = false;
     if (res.ok) { submitted = true; result = res; step = S_SUCCESS; maxReached = S_SUCCESS; render(); return; }
     if (res.error === 'full' && res.id) { submitted = true; result = res; step = -3; render(); return; }
     if (res.error === 'code') { removeCodeData(); goTo(N - 1); setErr('code','این کد دیگر معتبر نیست؛ مبلغ بدون کد محاسبه شد. اگر مبلغ کمتری واریز کرده‌اید، مابه‌التفاوت را واریز و فیش دوم را هم بارگذاری کنید.'); return; }
-    { const err = new Error('server'); err.code = String(res.error || 'server').slice(0, 120); throw err; }
+    throw new Error(res.error || 'server');
   } catch (e) {
     sending = false;
     btn.disabled = false; $('#backBtn').disabled = false; btn.textContent = 'ارسال دوباره';
     updateRail();
     const fe = $('#formError'); fe.hidden = false;
-    const code = e.name === 'AbortError' ? 'TIMEOUT' : (e.code || (e instanceof TypeError ? 'NO-CONNECTION' : 'UNKNOWN'));
-    console.error('Python Forge submit error:', code, e);
-    fe.innerHTML = (code === 'TIMEOUT'
-      ? 'ارسال بیش از حد طول کشید. «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
-      : code === 'NO-CONNECTION'
-      ? 'ارتباط با سرور ثبت‌نام برقرار نشد. چند لحظه بعد «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
-      : 'ثبت اطلاعات در سرور انجام نشد. چند لحظه بعد «ارسال دوباره» را بزنید.')
-      + ` اگر مشکل ادامه داشت، این کد را برای پشتیبانی بفرستید: <span class="ltr" style="font-size:12px">${esc(code)}</span>`;
+    console.error('Python Forge submit error:', e);
+    if (e.name === 'AbortError') {
+      fe.textContent = 'پاسخ سرور بیش از حد طول کشید. اطلاعات شما سر جایش است؛ چند لحظه بعد «ارسال دوباره» را بزنید.';
+    } else if (e instanceof TypeError) {
+      fe.textContent = 'مرورگر نتوانست به سرور ثبت‌نام متصل شود. این خطا لزوماً از اینترنت شما نیست و ممکن است از دسترسی یا تنظیمات Web App باشد.';
+    } else if (String(e.code || '').startsWith('HTTP-')) {
+      fe.textContent = 'سرور ثبت‌نام پاسخ نامعتبر داد (' + e.code + '). لطفاً دوباره تلاش کنید یا با پشتیبانی داروینیسم تماس بگیرید.';
+    } else if (e.code === 'BAD-RESPONSE') {
+      fe.textContent = 'پاسخ سرور ثبت‌نام قابل خواندن نبود. لطفاً دوباره تلاش کنید یا با پشتیبانی داروینیسم تماس بگیرید.';
+    } else {
+      fe.textContent = 'ثبت‌نام از سمت سرور تکمیل نشد. لطفاً دوباره تلاش کنید؛ اطلاعات واردشده در فرم حفظ شده است.';
+    }
   }
 }
 function removeCodeData(){ data.code = ''; data.codeValid = false; data.codeLabel = ''; }
