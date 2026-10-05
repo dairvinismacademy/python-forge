@@ -482,9 +482,10 @@ textarea.input{min-height:200px;resize:vertical;line-height:1.95}
 const CONFIG = {
   // آدرس Web App گوگل اپس اسکریپت. خالی = حالت پیش‌نمایش؛ چیزی ارسال نمی‌شود.
   SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyuvUbR_i6tWlylRiA3rYExEA3DbOjAuB7sOVrbTAB7NaBpf5q593ufzgTSO66xmeGROg/exec',
-  TERMS_URL: 'terms.pdf',
+  // در Apps Script، لینک PDF از CONFIG.TERMS_URL در Code.gs می‌آید
+  TERMS_URL: (T => T.startsWith('<' + '?') ? 'terms.pdf' : T)('<?!= termsUrl ?>'),
   TERMS_VERSION: '1405-v1',
-  MIN_WORDS: 25,                 // حداقل کلمه بخش هدف (حدود دو جمله)
+  MIN_WORDS: 10,                 // حداقل کلمه بخش هدف
   MAX_MOTIVATION: 2500,
   MAX_UPLOAD_MB: 10,
   CHANNEL: 'THE_D_AI_RVINISM',
@@ -577,6 +578,16 @@ function tier(){
 }
 
 /* ---------- server ---------- */
+// وقتی صفحه از خود Apps Script سرو می‌شود، google.script.run در دسترس است
+const GAS = typeof google !== 'undefined' && google.script && google.script.run;
+const OPEN_AT_LOAD = '<?!= openNow ?>' !== 'false';
+const LIVE = !!(GAS || CONFIG.SCRIPT_URL);
+function gas(fn, ...args){
+  return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+}
+const docLink = (u, inline) => /drive\.google\.com\/file\/d\//.test(u)
+  ? u.replace(/\/(view|edit)[^/]*$/, '') + (inline ? '/preview' : '/view')
+  : (inline ? u + '#view=FitH' : u);
 async function api(params){
   const url = CONFIG.SCRIPT_URL + '?' + new URLSearchParams(params).toString();
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 20000);
@@ -584,6 +595,7 @@ async function api(params){
   finally { clearTimeout(t); }
 }
 async function isOpen(){
+  if (GAS) { try { const j = await gas('apiStatus'); return j.open !== false; } catch (e) { return true; } }
   if (!CONFIG.SCRIPT_URL) return true;
   try { const j = await api({action:'status'}); return j.open !== false; }
   catch (e) { return true; }      // اگر بررسی نشد، مانع کاربر نشو؛ سرور هنگام ارسال دوباره چک می‌کند
@@ -794,7 +806,7 @@ const SCREENS = {
           <div class="doc-icon">PDF</div>
           <div class="doc-meta"><b>شرایط و قوانین ثبت‌نام</b><span id="docState" class="doc-state ${termsOpened?'read':''}">${termsOpened ? 'فایل باز شد' : 'هنوز باز نشده'}</span></div>
           <div class="doc-acts">
-            <a class="btn btn-primary" id="openTerms" href="${esc(CONFIG.TERMS_URL)}" target="_blank" rel="noopener">مطالعه فایل</a>
+            <a class="btn btn-primary" id="openTerms" href="${esc(docLink(CONFIG.TERMS_URL,false))}" target="_blank" rel="noopener">مطالعه فایل</a>
             <button type="button" class="btn btn-ghost" id="inlineTerms">نمایش در همین صفحه</button>
           </div>
         </div>
@@ -846,7 +858,7 @@ const SCREENS = {
       <div class="step-body">
         <div class="review">${reviewHTML()}</div>
         <div class="notice">${ICON.info}<div>با ارسال، ثبت‌نام شما انجام می‌شود و <b>کد پیگیری و لینک گروه اختصاصی دوره</b> را همین‌جا دریافت می‌کنید. فیش واریزی توسط تیم دوره بررسی می‌شود و در صورت مغایرت، از طریق ایمیل یا تلگرام با شما تماس می‌گیریم.</div></div>
-        ${CONFIG.SCRIPT_URL ? '' : '<p class="demo">حالت پیش‌نمایش: آدرس اسکریپت تنظیم نشده و اطلاعات جایی ارسال نمی‌شود.</p>'}
+        ${LIVE ? '' : '<p class="demo">حالت پیش‌نمایش: آدرس اسکریپت تنظیم نشده و اطلاعات جایی ارسال نمی‌شود.</p>'}
         <input type="text" name="website" id="f-website" class="sr" tabindex="-1" autocomplete="off" aria-hidden="true">
       </div>
     </section>`,
@@ -1000,7 +1012,7 @@ function bindStep(){
   if (open) {
     open.addEventListener('click', unlockTerms);
     $('#inlineTerms').onclick = () => {
-      $('#frameSlot').innerHTML = `<iframe class="doc-frame" src="${esc(CONFIG.TERMS_URL)}#view=FitH" title="شرایط و قوانین ثبت‌نام"></iframe>`;
+      $('#frameSlot').innerHTML = `<iframe class="doc-frame" src="${esc(docLink(CONFIG.TERMS_URL,true))}" title="شرایط و قوانین ثبت‌نام"></iframe>`;
       $('#inlineTerms').hidden = true; unlockTerms();
     };
     $('#f-agree').addEventListener('change', e => { data.agree = e.target.checked; $('#agreeBox').classList.toggle('on', data.agree); clearErr('agree'); });
@@ -1040,7 +1052,8 @@ async function applyCode(){
   ap.disabled = true; ap.innerHTML = '<span class="spin" style="border-color:rgba(244,239,229,.25);border-top-color:var(--ivory)"></span>';
   let res = {valid:false};
   try {
-    if (!CONFIG.SCRIPT_URL) { await new Promise(r => setTimeout(r, 500)); res = code === CONFIG.DEMO_CODE ? {valid:true, label:'آزمایشی'} : {valid:false}; }
+    if (GAS) res = await gas('apiCode', code, data.isStudent === 'yes');
+    else if (!CONFIG.SCRIPT_URL) { await new Promise(r => setTimeout(r, 500)); res = code === CONFIG.DEMO_CODE ? {valid:true, label:'آزمایشی'} : {valid:false}; }
     else res = await api({action:'code', code});
   } catch (e) { res = {valid:false, error:'net'}; }
   ap.disabled = false;
@@ -1073,7 +1086,7 @@ function updateCounter(){
   const n = wordCount(data.motivation), min = CONFIG.MIN_WORDS;
   const c = $('#c-motivation');
   c.classList.toggle('ok', n >= min);
-  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حدود دو جمله کافی است</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
+  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حداقل ${fa(min)} کلمه</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
 }
 
 function bindUpload(key){
@@ -1201,8 +1214,8 @@ function check(n){
   }
   if (n === 4) {
     const len = wordCount(data.motivation);
-    if (!len) errs.push(['motivation','در دو جمله بنویسید با چه هدفی می‌آیید.']);
-    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حدود دو جمله کافی است (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
+    if (!len) errs.push(['motivation','در یکی دو جمله بنویسید با چه هدفی می‌آیید.']);
+    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حداقل ${fa(CONFIG.MIN_WORDS)} کلمه (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
     need('hours','یکی از بازه‌ها را انتخاب کنید.');
     need('source','یکی از گزینه‌ها را انتخاب کنید.');
     if (data.source === 'سایر' && !data.sourceOther) errs.push(['sourceOther','بنویسید از چه طریقی آشنا شدید.']);
@@ -1283,28 +1296,37 @@ async function submit(){
 
   try {
     let res;
-    if (!CONFIG.SCRIPT_URL) {
+    if (GAS) {
+      res = await gas('apiSubmit', payload);
+    } else if (!CONFIG.SCRIPT_URL) {
       await new Promise(r => setTimeout(r, 1200));
       res = { ok:true, id: 'PF-' + String(Math.floor(1000 + Math.random()*9000)), groupLink: '' };
     } else {
       const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 90000);
       const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
       clearTimeout(tm);
-      res = await r.json();
+      const raw = await r.text();
+      try { res = JSON.parse(raw); }
+      catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
     }
     sending = false;
     if (res.ok) { submitted = true; result = res; step = S_SUCCESS; maxReached = S_SUCCESS; render(); return; }
     if (res.error === 'full' && res.id) { submitted = true; result = res; step = -3; render(); return; }
     if (res.error === 'code') { removeCodeData(); goTo(N - 1); setErr('code','این کد دیگر معتبر نیست؛ مبلغ بدون کد محاسبه شد. اگر مبلغ کمتری واریز کرده‌اید، مابه‌التفاوت را واریز و فیش دوم را هم بارگذاری کنید.'); return; }
-    throw new Error(res.error || 'server');
+    { const err = new Error('server'); err.code = String(res.error || 'server').slice(0, 120); throw err; }
   } catch (e) {
     sending = false;
     btn.disabled = false; $('#backBtn').disabled = false; btn.textContent = 'ارسال دوباره';
     updateRail();
     const fe = $('#formError'); fe.hidden = false;
-    fe.textContent = e.name === 'AbortError'
-      ? 'ارسال بیش از حد طول کشید. اتصال اینترنت را بررسی کنید و «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
-      : 'ارسال انجام نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید. اگر مشکل ادامه داشت، در کانال داروینیسم اطلاع دهید.';
+    const code = e.name === 'AbortError' ? 'TIMEOUT' : (e.code || (e instanceof TypeError ? 'NO-CONNECTION' : 'UNKNOWN'));
+    console.error('Python Forge submit error:', code, e);
+    fe.innerHTML = (code === 'TIMEOUT'
+      ? 'ارسال بیش از حد طول کشید. «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
+      : code === 'NO-CONNECTION'
+      ? 'ارتباط با سرور ثبت‌نام برقرار نشد. چند لحظه بعد «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
+      : 'ثبت اطلاعات در سرور انجام نشد. چند لحظه بعد «ارسال دوباره» را بزنید.')
+      + ` اگر مشکل ادامه داشت، این کد را برای پشتیبانی بفرستید: <span class="ltr" style="font-size:12px">${esc(code)}</span>`;
   }
 }
 function removeCodeData(){ data.code = ''; data.codeValid = false; data.codeLabel = ''; }
@@ -1320,7 +1342,8 @@ $('#stage').addEventListener('click', onCopy);
 step = CONFIG.OPEN ? 0 : -1;
 render({focus:false});
 if (document.fonts) document.fonts.ready.then(updateRail);
-if (CONFIG.OPEN && CONFIG.SCRIPT_URL) isOpen().then(open => { if (!open && step === 0) { step = -2; render({focus:false}); } });
+if (CONFIG.OPEN && !OPEN_AT_LOAD) { step = -2; render({focus:false}); }
+else if (CONFIG.OPEN && !GAS && CONFIG.SCRIPT_URL) isOpen().then(open => { if (!open && step === 0) { step = -2; render({focus:false}); } });
 </script>
 </body>
 </html>
