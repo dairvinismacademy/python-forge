@@ -422,6 +422,18 @@ textarea.input{min-height:200px;resize:vertical;line-height:1.95}
 .copied{color:var(--success)!important;box-shadow:inset 0 0 0 1px rgba(167,200,161,.6)!important}
 @media (max-width:600px){.pay{padding:20px}.pay-card .num{font-size:21px}.pay-amount b{font-size:25px}}
 .group-btn{width:100%;min-height:60px;font-size:17px}
+
+/* combobox */
+.combo{position:relative}
+.combo .input{padding-left:44px}
+.combo-toggle{all:unset;cursor:pointer;position:absolute;left:6px;top:7px;width:40px;height:40px;display:grid;place-items:center;border-radius:8px}
+.combo-toggle:hover{background:rgba(216,174,94,.08)}
+.combo-list{position:absolute;z-index:20;right:0;left:0;top:calc(100% + 6px);margin:0;padding:6px;list-style:none;max-height:280px;overflow:auto;
+  background:var(--raised);border-radius:12px;box-shadow:var(--rim),var(--e2)}
+.combo-list li{padding:10px 12px;border-radius:8px;font-size:14px;cursor:pointer;color:var(--secondary)}
+.combo-list li:hover,.combo-list li.on{background:rgba(216,174,94,.12);color:var(--ivory)}
+.combo-list li.combo-empty{cursor:default;color:var(--muted);font-size:13px}
+.combo-list li.combo-empty:hover{background:none;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -481,7 +493,7 @@ textarea.input{min-height:200px;resize:vertical;line-height:1.95}
    ===================================================================== */
 const CONFIG = {
   // آدرس Web App گوگل اپس اسکریپت. خالی = حالت پیش‌نمایش؛ چیزی ارسال نمی‌شود.
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbw7bJZW7u0E3nHRImKoKIIl0kOJ7csGJd2NoDdlxdDCmdV6bf_Jd4MwEL9MqAqV2X0DsQ/exec',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyuvUbR_i6tWlylRiA3rYExEA3DbOjAuB7sOVrbTAB7NaBpf5q593ufzgTSO66xmeGROg/exec',
   // در Apps Script، لینک PDF از CONFIG.TERMS_URL در Code.gs می‌آید
   TERMS_URL: (T => T.startsWith('<' + '?') ? 'terms.pdf' : T)('<?!= termsUrl ?>'),
   TERMS_VERSION: '1405-v1',
@@ -525,7 +537,8 @@ const HOURS = [
   {v:'۸ تا ۱۲ ساعت',   label:'۸ تا ۱۲',  h:64},
   {v:'بیش از ۱۲ ساعت', label:'بیش از ۱۲', h:80},
 ];
-const UNIS = ['دانشگاه علوم پزشکی گیلان','دانشگاه علوم پزشکی شهید بهشتی','دانشگاه علوم پزشکی شاهرود'];
+// دانشگاه‌های همکار (برای فهرست کشویی دانشگاه)
+const UNIS = ["انستیتو پاستور ایران", "دانشکده علوم پزشکی اسدآباد", "دانشکده علوم پزشکی بهبهان", "دانشکده علوم پزشکی تربت جام", "دانشکده علوم پزشکی خمین", "دانشکده علوم پزشکی ساوه", "دانشکده علوم پزشکی سیرجان", "دانشکده علوم پزشکی شوشتر", "دانشگاه آزاد اسلامی علوم پزشکی مرند", "دانشگاه آزاد اسلامی واحد کاشان", "دانشگاه ایلام", "دانشگاه بناب", "دانشگاه بیرجند", "دانشگاه تبریز", "دانشگاه تربیت مدرس", "دانشگاه شاهد", "دانشگاه شهید اشرفی اصفهانی", "دانشگاه صنعتی اراک", "دانشگاه صنعتی اسفراین", "دانشگاه علم و صنعت ایران", "دانشگاه علوم پزشکی آزاد اسلامی تهران", "دانشگاه علوم پزشکی اراک", "دانشگاه علوم پزشکی اردبیل", "دانشگاه علوم پزشکی البرز", "دانشگاه علوم پزشکی ایران", "دانشگاه علوم پزشکی ایرانشهر", "دانشگاه علوم پزشکی ایلام", "دانشگاه علوم پزشکی بابل", "دانشگاه علوم پزشکی بیرجند", "دانشگاه علوم پزشکی تبریز", "دانشگاه علوم پزشکی تهران", "دانشگاه علوم پزشکی جندی‌شاپور اهواز", "دانشگاه علوم پزشکی جیرفت", "دانشگاه علوم پزشکی دزفول", "دانشگاه علوم پزشکی رفسنجان", "دانشگاه علوم پزشکی زاهدان", "دانشگاه علوم پزشکی سبزوار", "دانشگاه علوم پزشکی سمنان", "دانشگاه علوم پزشکی شاهرود", "دانشگاه علوم پزشکی شهید بهشتی", "دانشگاه علوم پزشکی شهید صدوقی یزد", "دانشگاه علوم پزشکی شیراز", "دانشگاه علوم پزشکی قزوین", "دانشگاه علوم پزشکی قم", "دانشگاه علوم پزشکی لرستان", "دانشگاه علوم پزشکی مازندران", "دانشگاه علوم پزشکی مراغه", "دانشگاه علوم پزشکی مشهد", "دانشگاه علوم پزشکی نیشابور", "دانشگاه علوم پزشکی هرمزگان", "دانشگاه علوم پزشکی کاشان", "دانشگاه علوم پزشکی کردستان", "دانشگاه علوم پزشکی کرمان", "دانشگاه علوم پزشکی گناباد", "دانشگاه علوم پزشکی گیلان", "دانشگاه علوم پزشکی یاسوج", "دانشگاه میبد", "دانشگاه نیشابور", "دانشگاه کردستان", "دانشگاه گلستان"];
 
 const data = {
   firstName:'', lastName:'', isStudent:'',
@@ -750,8 +763,17 @@ const SCREENS = {
   2: () => data.isStudent === 'yes' ? `<section class="step">
       ${head(2, 'اطلاعات تحصیلی', 'این اطلاعات برای احراز وضعیت دانشجویی و اعمال تعرفه دانشجویی است.')}
       <div class="step-body">
-        ${text('university','دانشگاه محل تحصیل',{list:'uniList',ph:'نام کامل دانشگاه',max:120})}
-        <datalist id="uniList">${UNIS.map(u => `<option value="${u}">`).join('')}</datalist>
+        <div class="field" data-f="university">
+          <label class="label" for="f-university">دانشگاه محل تحصیل</label>
+          <div class="combo">
+            <input class="input" id="f-university" name="university" value="${esc(data.university)}" type="text" autocomplete="off" maxlength="120"
+              placeholder="انتخاب از فهرست یا تایپ نام دانشگاه" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="uniBox" aria-describedby="h-university e-university">
+            <button type="button" class="combo-toggle" id="uniToggle" tabindex="-1" aria-label="نمایش فهرست دانشگاه‌ها"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" fill="none" stroke="#B0A18B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <ul class="combo-list" id="uniBox" role="listbox" hidden></ul>
+          </div>
+          <p class="hint" id="h-university">اگر نام دانشگاه خود را در فهرست پیدا نمی‌کنید، آن را تایپ کنید.</p>
+          <p class="err" id="e-university"></p>
+        </div>
         <div class="row">
           ${text('major','رشته تحصیلی',{ph:'مثلاً پزشکی',max:80})}
           ${text('studentId','شماره دانشجویی',{ltr:true,mode:'numeric',ph:'401123456',max:20})}
@@ -844,7 +866,7 @@ const SCREENS = {
             <input class="input" id="f-code" dir="ltr" value="${esc(data.code)}" maxlength="40" autocomplete="off" placeholder="CODE" aria-describedby="e-code m-code">
             <button type="button" class="btn btn-ghost" id="applyCode">${data.codeValid ? 'حذف کد' : 'اعمال'}</button>
           </div>
-          <p class="ok-msg" id="m-code" ${data.codeValid ? '' : 'hidden'}>${data.codeValid ? `کد ${esc(data.codeLabel)} اعمال شد.` : ''}</p>
+          <p class="ok-msg" id="m-code" ${data.codeValid ? '' : 'hidden'}>${data.codeValid ? `کد تخفیف «${esc(data.codeLabel)}» اعمال شد.` : ''}</p>
           <p class="err" id="e-code"></p>
         </div>`}
         <div class="pay" id="payBox">${payHTML()}</div>
@@ -1004,6 +1026,8 @@ function bindStep(){
   });
   if (step === 4) updateCounter();
 
+  bindCombo();
+
   // uploads
   stage.querySelectorAll('[data-slot]').forEach(slot => bindUpload(slot.dataset.slot));
 
@@ -1029,6 +1053,37 @@ function bindStep(){
 
   // review
   stage.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => goTo(+b.dataset.edit));
+}
+
+/* ---------- فهرست کشویی دانشگاه ---------- */
+const normFa = v => String(v).replace(/ي/g,'ی').replace(/ك/g,'ک').replace(/[\u200c\s]+/g,' ').trim();
+function bindCombo(){
+  const inp = $('#f-university'); if (!inp) return;
+  const box = $('#uniBox'), tog = $('#uniToggle');
+  let items = [], active = -1;
+  const close = () => { box.hidden = true; inp.setAttribute('aria-expanded','false'); active = -1; };
+  const pick = v => { inp.value = v; data.university = v; clearErr('university'); close(); };
+  const draw = (all) => {
+    const q = normFa(inp.value);
+    items = all || !q ? UNIS : UNIS.filter(u => normFa(u).includes(q) || normFa(u).replace(/^(دانشگاه|دانشکده) (علوم پزشکی )?/,'').includes(q));
+    if (!items.length) { box.innerHTML = '<li class="combo-empty">در فهرست نیست؛ همین نامی که تایپ کرده‌اید ثبت می‌شود.</li>'; }
+    else box.innerHTML = items.map((u,i) => `<li role="option" id="uo-${i}" class="${i===active?'on':''}" data-v="${esc(u)}">${esc(u)}</li>`).join('');
+    box.hidden = false; inp.setAttribute('aria-expanded','true');
+  };
+  inp.addEventListener('focus', () => draw(false));
+  inp.addEventListener('input', () => { active = -1; draw(false); });
+  inp.addEventListener('keydown', e => {
+    if (box.hidden && (e.key === 'ArrowDown')) { draw(false); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (!items.length) return;
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(false);
+      const el = $('#uo-' + active); if (el) { el.scrollIntoView({block:'nearest'}); inp.setAttribute('aria-activedescendant', el.id); }
+    } else if (e.key === 'Enter' && !box.hidden && active >= 0) { e.preventDefault(); e.stopImmediatePropagation(); pick(items[active]); }
+    else if (e.key === 'Escape') close();
+  }, true);
+  box.addEventListener('mousedown', e => { const li = e.target.closest('[data-v]'); if (li) { e.preventDefault(); pick(li.dataset.v); } });
+  tog.addEventListener('mousedown', e => { e.preventDefault(); if (box.hidden) { inp.focus(); draw(true); } else close(); });
+  inp.addEventListener('blur', () => setTimeout(close, 120));
 }
 
 function onCopy(e){
@@ -1060,7 +1115,7 @@ async function applyCode(){
   if (res.valid) {
     data.codeValid = true; data.codeLabel = res.label || '';
     ap.textContent = 'حذف کد'; ci.readOnly = true;
-    const m = $('#m-code'); m.hidden = false; m.textContent = `کد ${data.codeLabel} اعمال شد.`;
+    const m = $('#m-code'); m.hidden = false; m.textContent = `کد تخفیف «${data.codeLabel}» اعمال شد.`;
     refreshPrice();
   } else {
     ap.textContent = 'اعمال';
@@ -1086,7 +1141,7 @@ function updateCounter(){
   const n = wordCount(data.motivation), min = CONFIG.MIN_WORDS;
   const c = $('#c-motivation');
   c.classList.toggle('ok', n >= min);
-  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حدود دو جمله کافی است</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
+  c.innerHTML = n >= min ? `<b>کافی است</b><span>${fa(n)} کلمه</span>` : `<span>حداقل ${fa(min)} کلمه</span><span>${fa(n)} / ${fa(min)} کلمه</span>`;
 }
 
 function bindUpload(key){
@@ -1214,8 +1269,8 @@ function check(n){
   }
   if (n === 4) {
     const len = wordCount(data.motivation);
-    if (!len) errs.push(['motivation','در دو جمله بنویسید با چه هدفی می‌آیید.']);
-    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حدود دو جمله کافی است (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
+    if (!len) errs.push(['motivation','در یکی دو جمله بنویسید با چه هدفی می‌آیید.']);
+    else if (len < CONFIG.MIN_WORDS) errs.push(['motivation',`کمی بیشتر بنویسید؛ حداقل ${fa(CONFIG.MIN_WORDS)} کلمه (${fa(CONFIG.MIN_WORDS - len)} کلمه دیگر).`]);
     need('hours','یکی از بازه‌ها را انتخاب کنید.');
     need('source','یکی از گزینه‌ها را انتخاب کنید.');
     if (data.source === 'سایر' && !data.sourceOther) errs.push(['sourceOther','بنویسید از چه طریقی آشنا شدید.']);
@@ -1303,38 +1358,30 @@ async function submit(){
       res = { ok:true, id: 'PF-' + String(Math.floor(1000 + Math.random()*9000)), groupLink: '' };
     } else {
       const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 90000);
-      try {
-        const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
-        const raw = await r.text();
-        if (!r.ok) { const err = new Error('server-http'); err.code = 'HTTP-' + r.status; throw err; }
-        try { res = JSON.parse(raw); }
-        catch (_) { const err = new Error('bad-response'); err.code = 'BAD-RESPONSE'; throw err; }
-      } finally {
-        clearTimeout(tm);
-      }
+      const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
+      clearTimeout(tm);
+      const raw = await r.text();
+      try { res = JSON.parse(raw); }
+      catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
     }
     sending = false;
     if (res.ok) { submitted = true; result = res; step = S_SUCCESS; maxReached = S_SUCCESS; render(); return; }
     if (res.error === 'full' && res.id) { submitted = true; result = res; step = -3; render(); return; }
     if (res.error === 'code') { removeCodeData(); goTo(N - 1); setErr('code','این کد دیگر معتبر نیست؛ مبلغ بدون کد محاسبه شد. اگر مبلغ کمتری واریز کرده‌اید، مابه‌التفاوت را واریز و فیش دوم را هم بارگذاری کنید.'); return; }
-    throw new Error(res.error || 'server');
+    { const err = new Error('server'); err.code = String(res.error || 'server').slice(0, 120); throw err; }
   } catch (e) {
     sending = false;
     btn.disabled = false; $('#backBtn').disabled = false; btn.textContent = 'ارسال دوباره';
     updateRail();
     const fe = $('#formError'); fe.hidden = false;
-    console.error('Python Forge submit error:', e);
-    if (e.name === 'AbortError') {
-      fe.textContent = 'پاسخ سرور بیش از حد طول کشید. اطلاعات شما سر جایش است؛ چند لحظه بعد «ارسال دوباره» را بزنید.';
-    } else if (e instanceof TypeError) {
-      fe.textContent = 'مرورگر نتوانست به سرور ثبت‌نام متصل شود. این خطا لزوماً از اینترنت شما نیست و ممکن است از دسترسی یا تنظیمات Web App باشد.';
-    } else if (String(e.code || '').startsWith('HTTP-')) {
-      fe.textContent = 'سرور ثبت‌نام پاسخ نامعتبر داد (' + e.code + '). لطفاً دوباره تلاش کنید یا با پشتیبانی داروینیسم تماس بگیرید.';
-    } else if (e.code === 'BAD-RESPONSE') {
-      fe.textContent = 'پاسخ سرور ثبت‌نام قابل خواندن نبود. لطفاً دوباره تلاش کنید یا با پشتیبانی داروینیسم تماس بگیرید.';
-    } else {
-      fe.textContent = 'ثبت‌نام از سمت سرور تکمیل نشد. لطفاً دوباره تلاش کنید؛ اطلاعات واردشده در فرم حفظ شده است.';
-    }
+    const code = e.name === 'AbortError' ? 'TIMEOUT' : (e.code || (e instanceof TypeError ? 'NO-CONNECTION' : 'UNKNOWN'));
+    console.error('Python Forge submit error:', code, e);
+    fe.innerHTML = (code === 'TIMEOUT'
+      ? 'ارسال بیش از حد طول کشید. «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
+      : code === 'NO-CONNECTION'
+      ? 'ارتباط با سرور ثبت‌نام برقرار نشد. چند لحظه بعد «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
+      : 'ثبت اطلاعات در سرور انجام نشد. چند لحظه بعد «ارسال دوباره» را بزنید.')
+      + ` اگر مشکل ادامه داشت، این کد را برای پشتیبانی بفرستید: <span class="ltr" style="font-size:12px">${esc(code)}</span>`;
   }
 }
 function removeCodeData(){ data.code = ''; data.codeValid = false; data.codeLabel = ''; }
