@@ -493,7 +493,7 @@ textarea.input{min-height:200px;resize:vertical;line-height:1.95}
    ===================================================================== */
 const CONFIG = {
   // آدرس Web App گوگل اپس اسکریپت. خالی = حالت پیش‌نمایش؛ چیزی ارسال نمی‌شود.
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxMgEkwyo44T3Wk3qXHZ5iRROQcGGMPvvf7SX7U8XceiYCMK8Hee8mTw-eyRqDmo80H3Q/exec',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbw6AT_7QcMUpD2slOmwY3N1Vevf1PAtwMTx6JUGmMQPXHfJNchW5RDO8HEvMklWf3SYRQ/exec',
   // در Apps Script، لینک PDF از CONFIG.TERMS_URL در Code.gs می‌آید
   TERMS_URL: (T => T.startsWith('<' + '?') ? 'terms.pdf' : T)('<?!= termsUrl ?>'),
   TERMS_VERSION: '1405-v1',
@@ -583,6 +583,24 @@ function normTelegram(v){
 }
 const normCode = v => toLatin(v).toUpperCase().replace(/\s+/g,'');
 
+// یک شناسه ثابت برای همین تلاش ثبت‌نام؛ retry همان رکورد را دوباره ایجاد نمی‌کند.
+let submissionKey = '';
+function makeSubmissionKey(){
+  const c = window.crypto || {};
+  if (typeof c.randomUUID === 'function') return c.randomUUID();
+  let rnd = '';
+  if (typeof c.getRandomValues === 'function') {
+    rnd = Array.from(c.getRandomValues(new Uint32Array(4)), n => n.toString(36)).join('');
+  } else {
+    rnd = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+  return 'pf_' + Date.now().toString(36) + '_' + rnd;
+}
+function getSubmissionKey(){
+  if (!submissionKey) submissionKey = makeSubmissionKey();
+  return submissionKey;
+}
+
 /* ---------- pricing ---------- */
 function tier(){
   if (data.codeValid && data.isStudent === 'yes') return {key:'code', name:'با کد تخفیف دانشگاه', price:CONFIG.PRICE_CODE};
@@ -604,8 +622,40 @@ const docLink = (u, inline) => /drive\.google\.com\/file\/d\//.test(u)
 async function api(params){
   const url = CONFIG.SCRIPT_URL + '?' + new URLSearchParams(params).toString();
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 20000);
-  try { const r = await fetch(url, {signal: ctrl.signal}); return await r.json(); }
-  finally { clearTimeout(t); }
+  try {
+    const r = await fetch(url, {signal: ctrl.signal, cache:'no-store'});
+    const raw = await r.text();
+    try { return JSON.parse(raw); }
+    catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
+  } finally { clearTimeout(t); }
+}
+
+async function lookupSubmission(key){
+  if (!key) return null;
+  if (GAS) {
+    const j = await gas('apiLookup', key);
+    return j && j.found ? j : null;
+  }
+  if (!CONFIG.SCRIPT_URL) return null;
+  const j = await api({action:'lookup', key, _:Date.now()});
+  return j && j.found ? j : null;
+}
+
+async function recoverSubmission(key){
+  // POST ممکن است روی سرور کامل شده باشد اما پاسخ در redirect شبکه گم شود.
+  // چند بار با GET سبک بررسی می‌کنیم تا کاربر رکورد تکراری نسازد.
+  const waits = [250, 700, 1400, 2600];
+  for (const ms of waits) {
+    await new Promise(r => setTimeout(r, ms));
+    try {
+      const hit = await lookupSubmission(key);
+      if (!hit) continue;
+      return hit.full
+        ? {ok:false, error:'full', id:hit.id, groupLink:'', recovered:true}
+        : {ok:true, id:hit.id, groupLink:hit.groupLink || '', recovered:true};
+    } catch (_) {}
+  }
+  return null;
 }
 async function isOpen(){
   if (GAS) { try { const j = await gas('apiStatus'); return j.open !== false; } catch (e) { return true; } }
@@ -1323,6 +1373,22 @@ $('#nextBtn').onclick = next;
 $('#backBtn').onclick = () => { if (!sending && step > 1) goTo(step - 1); };
 
 /* ---------- submit ---------- */
+function handleSubmitResult(res){
+  sending = false;
+  if (res && res.ok) {
+    submitted = true; result = res; step = S_SUCCESS; maxReached = S_SUCCESS; render(); return true;
+  }
+  if (res && res.error === 'full' && res.id) {
+    submitted = true; result = res; step = -3; render(); return true;
+  }
+  if (res && res.error === 'code') {
+    removeCodeData(); goTo(N - 1);
+    setErr('code','این کد دیگر معتبر نیست؛ مبلغ بدون کد محاسبه شد. اگر مبلغ کمتری واریز کرده‌اید، مابه‌التفاوت را واریز و فیش دوم را هم بارگذاری کنید.');
+    return true;
+  }
+  return false;
+}
+
 async function submit(){
   const bad = firstInvalidStep();
   if (bad) { goTo(bad); validate(bad); return; }
@@ -1347,6 +1413,7 @@ async function submit(){
     card: student && files.card ? { base64: files.card.base64, mime: files.card.mime, name: files.card.name } : null,
     receipt: { base64: files.receipt.base64, mime: files.receipt.mime, name: files.receipt.name },
     website: data.website, clientTime: new Date().toISOString(), userAgent: navigator.userAgent,
+    submissionKey: getSubmissionKey(),
   };
 
   try {
@@ -1357,19 +1424,43 @@ async function submit(){
       await new Promise(r => setTimeout(r, 1200));
       res = { ok:true, id: 'PF-' + String(Math.floor(1000 + Math.random()*9000)), groupLink: '' };
     } else {
-      const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 90000);
-      const r = await fetch(CONFIG.SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload), signal: ctrl.signal });
-      clearTimeout(tm);
-      const raw = await r.text();
-      try { res = JSON.parse(raw); }
-      catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
+      const ctrl = new AbortController();
+      const tm = setTimeout(() => ctrl.abort(), 90000);
+      try {
+        const r = await fetch(CONFIG.SCRIPT_URL, {
+          method:'POST',
+          headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body:JSON.stringify(payload),
+          signal:ctrl.signal,
+        });
+        const raw = await r.text();
+        try { res = JSON.parse(raw); }
+        catch (_) { const err = new Error('bad-response'); err.code = 'HTTP-' + r.status; throw err; }
+      } finally {
+        clearTimeout(tm);
+      }
     }
-    sending = false;
-    if (res.ok) { submitted = true; result = res; step = S_SUCCESS; maxReached = S_SUCCESS; render(); return; }
-    if (res.error === 'full' && res.id) { submitted = true; result = res; step = -3; render(); return; }
-    if (res.error === 'code') { removeCodeData(); goTo(N - 1); setErr('code','این کد دیگر معتبر نیست؛ مبلغ بدون کد محاسبه شد. اگر مبلغ کمتری واریز کرده‌اید، مابه‌التفاوت را واریز و فیش دوم را هم بارگذاری کنید.'); return; }
-    { const err = new Error('server'); err.code = String(res.error || 'server').slice(0, 120); throw err; }
+
+    if (handleSubmitResult(res)) return;
+
+    // حتی اگر سرور پاسخ خطا داد، قبل از نمایش خطا بررسی کن شاید ردیف قبلاً commit شده باشد.
+    if (LIVE && payload.submissionKey) {
+      btn.innerHTML = '<span class="spin" aria-hidden="true"></span> در حال بررسی نتیجه';
+      const recovered = await recoverSubmission(payload.submissionKey);
+      if (recovered && handleSubmitResult(recovered)) return;
+    }
+
+    const err = new Error('server');
+    err.code = String((res && res.error) || 'server').slice(0, 120);
+    throw err;
   } catch (e) {
+    // مهم: خطای HTTP/CORS می‌تواند بعد از ثبت موفق رخ دهد. اول نتیجه را از backend بازیابی کن.
+    if (LIVE && payload.submissionKey) {
+      btn.innerHTML = '<span class="spin" aria-hidden="true"></span> در حال بررسی نتیجه';
+      const recovered = await recoverSubmission(payload.submissionKey);
+      if (recovered && handleSubmitResult(recovered)) return;
+    }
+
     sending = false;
     btn.disabled = false; $('#backBtn').disabled = false; btn.textContent = 'ارسال دوباره';
     updateRail();
@@ -1377,10 +1468,10 @@ async function submit(){
     const code = e.name === 'AbortError' ? 'TIMEOUT' : (e.code || (e instanceof TypeError ? 'NO-CONNECTION' : 'UNKNOWN'));
     console.error('Python Forge submit error:', code, e);
     fe.innerHTML = (code === 'TIMEOUT'
-      ? 'ارسال بیش از حد طول کشید. «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
+      ? 'پاسخ سرور بیش از حد طول کشید و ثبت نهایی قابل تأیید نبود. اطلاعات شما سر جایش است؛ «ارسال دوباره» همان درخواست را بدون ایجاد ثبت تکراری ادامه می‌دهد.'
       : code === 'NO-CONNECTION'
-      ? 'ارتباط با سرور ثبت‌نام برقرار نشد. چند لحظه بعد «ارسال دوباره» را بزنید؛ اطلاعات شما سر جایش است.'
-      : 'ثبت اطلاعات در سرور انجام نشد. چند لحظه بعد «ارسال دوباره» را بزنید.')
+      ? 'ارتباط با سرور ثبت‌نام قابل تأیید نبود. اطلاعات شما سر جایش است؛ «ارسال دوباره» همان درخواست را بدون ایجاد ثبت تکراری ادامه می‌دهد.'
+      : 'نتیجه ثبت از سرور قابل تأیید نبود. اطلاعات شما سر جایش است؛ «ارسال دوباره» همان درخواست را بدون ایجاد ثبت تکراری ادامه می‌دهد.')
       + ` اگر مشکل ادامه داشت، این کد را برای پشتیبانی بفرستید: <span class="ltr" style="font-size:12px">${esc(code)}</span>`;
   }
 }
